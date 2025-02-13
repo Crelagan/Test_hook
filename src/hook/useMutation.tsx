@@ -1,61 +1,80 @@
-import { useState, useEffect } from 'react';
-import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
+import { useState } from 'react';
+import { useQueryContext } from './query.context';
+import axios from 'axios';
 
-axios.defaults.baseURL = 'https://jsonplaceholder.typicode.com';
-
-interface UseMutationCallbacks{
-    onSuccess: (data : AxiosResponse ) => void;
-    onError: (error: AxiosError) => void
+interface Props<TData> {
+  url: string;
+  method: "POST" | "PUT" | "PATCH";
+  onSuccess?: (data: TData) => void;
+  onError?: (error: unknown) => void;
 }
 
-const useMutation = (axiosParams: AxiosRequestConfig, callback: UseMutationCallbacks) => {
-  const [response, setResponse] = useState<AxiosResponse>();
-  const [isError, setError] = useState<AxiosError>();
-  const [isLoading, setLoading] = useState(true);
+interface QueryResult {
+  isLoading: boolean;
+}
 
-  const fetchData = async (params: AxiosRequestConfig) => {
-    try {
-        setLoading(true)
-        switch (axiosParams.method) {
-            case "POST":
-                axiosParams.data = {title: "Nouveau Post", body: "Ceci est un contenu"} 
-                axiosParams.url = "/posts?_delay=10000"
-                break;
-            case "PUT":
-                axiosParams.data = {id: 33, title: "Nouveau Post edité", body: "Ceci est un contenu édité"} 
-                axiosParams.url = "/posts/33"
-            break;
-            case "PATCH":
-                axiosParams.data = {title: "Nouveau Post patché"} 
-                axiosParams.url = "/posts/110"
-            break;
-            default:
-                axiosParams.method = "POST"
-                axiosParams.data = {title: "Nouveau Post", body: "Ceci est un contenu"} 
-                axiosParams.url = "/posts"
-        }
-        const result = await axios.request(params)
-        setResponse(result)
-        //implementer onSuccess
-        callback.onSuccess(result)
-    } catch( err ) {
-        setError(err)
-        callback.onError(err)
-        // implementer callback onError
-    } finally {
-        setLoading(false)
-    }
-  };
+const noop = () => { }
 
-  const sendData = () => {
-    fetchData(axiosParams);
+export type TriggerResult<TData> = {
+  toPromise: () => Promise<TData>;
+  abort: () => void;
+}
+
+type UseMutationReturn<TData, TBody> = [
+  (body: TBody) => TriggerResult<TData>,
+  QueryResult
+];
+
+export const useMutation = <TData, TBody extends Record<string, any>>({
+  url,
+  method = "POST",
+  onSuccess = noop,
+  onError = noop
+}: Props<TData>): UseMutationReturn<TData, TBody> => {
+
+  const context = useQueryContext();
+
+  const [queryResult, setQueryResult] = useState<QueryResult>({
+    isLoading: false,
+  });
+
+  const trigger = (body: TBody): TriggerResult<TData> => {
+    const controller = new AbortController();
+
+    setQueryResult(prevState => ({ ...prevState, isLoading: true }));
+
+    const axiosPromise = axios({
+      method,
+      signal: controller.signal,
+      url: context.config.baseUrl + url,
+      data: body,
+    });
+
+    const promise: Promise<TData> = new Promise((resolve, reject) => {
+      axiosPromise
+        .then((response) => {
+          resolve(response.data);
+
+          onSuccess(response.data);
+        })
+        .catch((error) => {
+          reject(error);
+
+          onError(error);
+        })
+        .finally(() => {
+          setQueryResult(prevState => ({ ...prevState, isLoading: false }))
+        });
+    });
+
+    return {
+      abort: () => controller.abort(),
+      toPromise: () => promise
+    };
   }
 
-  useEffect(() => {
-      fetchData(axiosParams);
-  },[]);
-
-  return { response, isError, isLoading, sendData };
-}
-
-export default useMutation;
+  return [
+    trigger,
+    queryResult
+  ] as const;
+};

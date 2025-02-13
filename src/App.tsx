@@ -1,81 +1,82 @@
-import { useState } from 'react';
-import './App.css'
-import useMutation from "./hook/useMutation"
+import { useRef } from 'react'
+import { TriggerResult, useMutation } from './useMutation'
 
-function App() {
-  const [requestType, setRequestType] = useState("");
-
-  // je pense qu'on peut rendre les callback plus utile en modifiant le DOM directement a l'interieur.
-  const { response, isLoading, isError, sendData } = useMutation({
-    method: `${requestType}`,
-    headers: {
-      accept: '*/*'
-    }
-  },
-  {
-      //on pourrais gerer directement l'affichage directement dans les retour de callback
-      onSuccess: (data) => console.log("Operation réussie :", data),
-      onError: (error) => console.error("Erreur lors de la création :", error),
-  });  
-
-  //solution de factorisation
-  // const mutatePost = (method: string) => {
-  //   setRequestType(method);
-  //   sendData();
-  // }
-
-  const newPost = () => {
-    setRequestType("POST");
-    sendData();
-  }
-
-  const editPost = () => {
-    setRequestType("PUT");
-    sendData();
-  }
-
-  const patchPost = () => {
-    setRequestType("PATCH");
-    sendData();
-  }
-
-
-  return (
-    <div className="App">
-      {isLoading && (
-        <p>Loading...</p>
-      )}
-      {isError && (
-        <h1>{isError.message}</h1>
-      )}
-      {!isLoading && !error && (
-        <article className="post">
-          <h1 className="page-title">Voici l'article sollicité : </h1>
-          <h3 className="post-title">{response?.data.title}</h3>
-          <p className="post-body">
-            {response?.data.body}
-          </p>
-        </article>
-      )}
-
-      {/* Avec la factorisation on aurais appelé la methode de cettte facon 
-      <button onClick={() => mutatePost("Post")}>
-        POST
-      </button> */}
-
-      <button onClick={() => newPost()}>
-        POST
-      </button>
-
-      <button onClick={() => editPost()}>
-        PUT
-      </button>
-
-      <button onClick={() => patchPost()}>
-        PATCH
-      </button>
-    </div>
-  );
+type User = {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
 }
 
-export default App
+function App() {
+  const ref = useRef<TriggerResult<User>>();
+
+  const [mutation, { isLoading }] = useMutation<User, Omit<User, "id">>({
+    url: '/posts',
+    method: 'POST',
+    onSuccess(data) {
+      console.log("onSuccess", { data })
+    },
+    onError(error) {
+      console.log("onError", { error })
+    },
+  });
+
+  const handleSubmit = async () => {
+    const triggerResult = mutation({
+      userId: Math.random().toString(36).substring(2, 7),
+      title: 'foo',
+      body: 'bar',
+    });
+    
+    ref.current = triggerResult;
+  }
+
+  const handleSubmitAsPromise = async () => {
+    try {
+
+      const triggerResult = mutation({
+        userId: Math.random().toString(36).substring(2, 7),
+        title: 'foo',
+        body: 'bar',
+      })
+
+      ref.current = triggerResult;
+
+      const data = await triggerResult.toPromise()
+
+      console.log({ data })
+
+    } catch (error) {
+      console.error({ error })
+    }
+  }
+
+  const handleCancel = () => {
+    if (ref.current) {
+      ref.current.abort();
+    }
+  }
+
+  return (
+    <>
+      <h1>useMutation hook</h1>
+
+      {isLoading && <div>
+        <p>Loading...</p>
+
+        <button onClick={handleCancel}>
+          Cancel
+        </button>
+      </div>}
+      
+      <button onClick={handleSubmit}>
+        Call
+      </button>
+
+      <button onClick={handleSubmitAsPromise}>
+        Call as promise
+      </button>
+    </>
+  )
+}
